@@ -76,7 +76,7 @@ app.get('/api/twitch/:username', async (req, res) => {
     }
 
     // User exists and is active - everything is fine
-    const banStatus = 'Everything works perfectly! If you\'re experiencing issues, try flushing your DNS: https://www.cloudns.net/wiki/article/83/';
+    const banStatus = 'Everything works perfectly! If you\'re experiencing issues, try <a href="https://www.cloudflare.com/learning/dns/what-is-dns/dns-troubleshooting-flush-dns-cache/" target="_blank">flushing your DNS</a> or <a href="https://www.pcmag.com/how-to/how-to-clear-your-cache-on-any-browser" target="_blank">clearing your app cache</a>.';
 
     res.json({
       username: user.login,
