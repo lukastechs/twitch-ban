@@ -2,7 +2,7 @@
   "name": "twitch-ban-checker",
   "version": "1.0.0",
   "description": "A Node.js API to check Twitch user ban status",
-  "main": "server.js",
+  "main": "twitch-ban.js",
   "scripts": {
     "start": "node twitch-ban.js",
     "dev": "nodemon twitch-ban.js"
