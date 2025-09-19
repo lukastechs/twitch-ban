@@ -36,10 +36,10 @@ async function getTwitchAccessToken() {
 
 // Root endpoint
 app.get('/', (req, res) => {
-  res.send('Twitch Ban Checker API is running');
+  res.send('Twitch Sitewide Ban Checker API is running');
 });
 
-// Twitch ban checker endpoint (GET)
+// Twitch sitewide ban checker endpoint (GET)
 app.get('/api/twitch/:username', async (req, res) => {
   const { username } = req.params;
   if (!username) {
@@ -49,7 +49,7 @@ app.get('/api/twitch/:username', async (req, res) => {
   try {
     const token = await getTwitchAccessToken();
     
-    // Fetch user data
+    // Fetch user data - this detects sitewide bans via 404
     const userResponse = await axios.get(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(username)}`, {
       headers: {
         'Client-ID': process.env.TWITCH_CLIENT_ID,
@@ -60,31 +60,12 @@ app.get('/api/twitch/:username', async (req, res) => {
 
     const user = userResponse.data.data[0];
     if (!user) {
-      return res.status(404).json({ error: `User ${username} not found` });
+      // This shouldn't happen for a successful response, but handle gracefully
+      return res.status(404).json({ error: `User ${username} not found or sitewide banned` });
     }
 
-    // Check ban status (requires broadcaster_id and moderator access token with moderation:read scope)
-    // Note: This assumes the server has a valid moderator token stored in environment variables
-    let banStatus = 'Everything works perfectly! If you’re experiencing issues, try flushing your DNS: https://www.cloudns.net/wiki/article/83/';
-    try {
-      const banResponse = await axios.get(`https://api.twitch.tv/helix/moderation/banned?broadcaster_id=${user.id}&user_id=${user.id}`, {
-        headers: {
-          'Client-ID': process.env.TWITCH_CLIENT_ID,
-          'Authorization': `Bearer ${process.env.TWITCH_MODERATOR_TOKEN}` // Requires moderator token
-        },
-        timeout: 5000
-      });
-
-      const isBanned = banResponse.data.data.some(ban => ban.user_id === user.id);
-      banStatus = isBanned ? 'User is banned' : 'Everything works perfectly! If you’re experiencing issues, try flushing your DNS: https://www.cloudns.net/wiki/article/83/';
-    } catch (banError) {
-      console.error('Ban Check Error:', {
-        status: banError.response?.status,
-        data: banError.response?.data,
-        message: banError.message
-      });
-      // Default to generic message if ban check fails
-    }
+    // User exists and is active - everything is fine
+    const banStatus = 'Everything works perfectly! If you\'re experiencing issues, try flushing your DNS: https://www.cloudns.net/wiki/article/83/';
 
     res.json({
       username: user.login,
@@ -94,6 +75,17 @@ app.get('/api/twitch/:username', async (req, res) => {
       profile_link: `https://www.twitch.tv/${user.login}`
     });
   } catch (error) {
+    if (error.response?.status === 404) {
+      // Sitewide ban (or non-existent user) detected
+      return res.json({
+        username: req.params.username,
+        nickname: 'N/A (Banned)',
+        avatar: 'https://via.placeholder.com/50?text=Banned',
+        ban_status: 'User appears to be sitewide banned on Twitch. Account is inaccessible.',
+        profile_link: `https://www.twitch.tv/${req.params.username} (Profile unavailable)`
+      });
+    }
+
     console.error('Twitch API Error:', {
       status: error.response?.status,
       data: error.response?.data,
@@ -112,5 +104,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Twitch Ban Checker Server running on port ${port}`);
+  console.log(`Twitch Sitewide Ban Checker Server running on port ${port}`);
 });
