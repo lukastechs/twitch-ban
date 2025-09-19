@@ -46,6 +46,17 @@ app.get('/api/twitch/:username', async (req, res) => {
     return res.status(400).json({ error: 'Username is required' });
   }
 
+  // Validate username format (basic check for Twitch username rules: 3-25 chars, letters/numbers/underscores)
+  if (!/^[a-zA-Z0-9_]{3,25}$/.test(username)) {
+    return res.json({
+      username: username,
+      nickname: 'N/A (Invalid)',
+      avatar: 'https://via.placeholder.com/50?text=Invalid',
+      ban_status: 'Invalid username format. Twitch usernames must be 3-25 characters, using only letters, numbers, or underscores.',
+      profile_link: `https://www.twitch.tv/${username} (Profile unavailable)`
+    });
+  }
+
   try {
     const token = await getTwitchAccessToken();
     
@@ -75,13 +86,13 @@ app.get('/api/twitch/:username', async (req, res) => {
       profile_link: `https://www.twitch.tv/${user.login}`
     });
   } catch (error) {
-    if (error.response?.status === 404) {
-      // Sitewide ban (or non-existent user) detected
+    if (error.response?.status === 404 || error.response?.status === 400) {
+      // Sitewide ban (or non-existent user) detected, or invalid username
       return res.json({
         username: req.params.username,
-        nickname: 'N/A (Banned)',
+        nickname: 'N/A (Banned or Invalid)',
         avatar: 'https://via.placeholder.com/50?text=Banned',
-        ban_status: 'User appears to be sitewide banned on Twitch. Account is inaccessible.',
+        ban_status: 'User appears to be sitewide banned on Twitch or does not exist. Account is inaccessible.',
         profile_link: `https://www.twitch.tv/${req.params.username} (Profile unavailable)`
       });
     }
