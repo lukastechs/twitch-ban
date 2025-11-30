@@ -1,12 +1,14 @@
 {
   "name": "twitch-ban-checker",
-  "version": "1.0.1",
-  "description": "A Node.js API to check Twitch user ban status – with rate limiting & caching",
+  "version": "1.0.0",
+  "description": "A Node.js API to check Twitch user ban status",
   "main": "twitch-ban.js",
   "scripts": {
     "start": "node twitch-ban.js",
     "dev": "nodemon twitch-ban.js"
   },
+  "author": "",
+  "license": "ISC",
   "dependencies": {
     "axios": "^1.7.7",
     "cors": "^2.8.5",
@@ -18,8 +20,6 @@
   "devDependencies": {
     "nodemon": "^3.1.7"
   },
-  "author": "",
-  "license": "ISC",
   "engines": {
     "node": ">=18"
   }
