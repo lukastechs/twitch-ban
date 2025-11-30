@@ -1,3 +1,4 @@
+// twitch-ban.js — YOUR ORIGINAL STYLE + ALL FIXES
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
@@ -8,30 +9,22 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Config
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const RATE_LIMIT_MAX = 10;
-const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-
 app.use(cors());
 app.use(express.json());
+app.set('trust proxy', 1); // ← Fixes Render warning
 
-// In-memory stores
+// Simple caches
 const userCache = new Map();
 const tokenCache = { token: null, expiresAt: 0 };
 const mutex = new Mutex();
 
-// Rate limiter
-const limiter = rateLimit({
-  windowMs: RATE_LIMIT_WINDOW_MS,
-  max: RATE_LIMIT_MAX,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests – please wait a minute.' }
-});
-app.use('/api/', limiter);
+// Rate limit: 15 requests/min per IP
+app.use('/api/', rateLimit({
+  windowMs: 60_000,
+  max: 15,
+  message: { error: "Too many requests — wait 1 minute" }
+}));
 
-// Get Twitch token (cached)
 async function getTwitchAccessToken() {
   if (tokenCache.token && tokenCache.expiresAt > Date.now()) {
     return tokenCache.token;
@@ -39,10 +32,7 @@ async function getTwitchAccessToken() {
 
   const release = await mutex.acquire();
   try {
-    if (tokenCache.token && tokenCache.expiresAt > Date.now()) return tokenCache.token;
-
-    console.log('Fetching new Twitch token...');
-    const res = await axios.post('https://id.twitch.tv/oauth2/token', null, {
+    const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
       params: {
         client_id: process.env.TWITCH_CLIENT_ID,
         client_secret: process.env.TWITCH_CLIENT_SECRET,
@@ -50,52 +40,49 @@ async function getTwitchAccessToken() {
       },
       timeout: 8000
     });
-
-    tokenCache.token = res.data.access_token;
-    tokenCache.expiresAt = Date.now() + (res.data.expires_in - 60) * 1000;
+    tokenCache.token = response.data.access_token;
+    tokenCache.expiresAt = Date.now() + (response.data.expires_in - 60) * 1000;
     return tokenCache.token;
-  } catch (err) {
-    console.error('Token error:', err.message);
-    throw err;
   } finally {
     release();
   }
 }
 
-// Main endpoint
-app.get('/api/twitch/:username', async (req, res) => {
-  let { username } = req.params;
-  username = username.trim().toLowerCase();
+app.get('/', (req, res) => {
+  res.send('Twitch Sitewide Ban Checker API is running');
+});
 
-  // Basic validation
-  if (!username || username.length < 3 || username.length > 25 || !/^[a-z0-9_]+$/i.test(username)) {
+app.get('/api/twitch/:username', async (req, res) => {
+  const { username } = req.params;
+  const normalized = username.toLowerCase().trim();
+
+  if (!normalized) {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+
+  // Your original validation — kept exactly
+  if (!/^[a-zA-Z0-9_]{3,25}$/.test(normalized)) {
     return res.json({
-      username,
-      nickname: 'Invalid',
+      username: normalized,
+      nickname: 'N/A (Invalid)',
       avatar: 'https://via.placeholder.com/50?text=Invalid',
-      ban_status: 'Invalid Twitch username format.',
-      profile_link: '#'
+      ban_status: 'Invalid username format. Twitch usernames must be 3-25 characters, using only letters, numbers, or underscores.',
+      profile_link: `https://www.twitch.tv/${normalized} (Profile unavailable)`
     });
   }
 
-  // Cache hit?
-  const cached = userCache.get(username);
-  if (cached && cached.timestamp > Date.now() - CACHE_TTL) {
-    return res.json({ ...cached.data, cached: true });
+  // Cache check
+  if (userCache.has(normalized)) {
+    const cached = userCache.get(normalized);
+    if (cached.timestamp > Date.now() - 300000) { // 5 min
+      return res.json(cached.data);
+    }
   }
 
-  const release = await mutex.acquire();
   try {
-    // Double-check cache
-    const again = userCache.get(username);
-    if (again && again.timestamp > Date.now() - CACHE_TTL) {
-      return res.json({ ...again.data, cached: true });
-    }
-
     const token = await getTwitchAccessToken();
 
-    const response = await axios.get('https://api.twitch.tv/helix/users', {
-      params: { login: username },
+    const userResponse = await axios.get(`https://api.twitch.tv/helix/users?login=${normalized}`, {
       headers: {
         'Client-ID': process.env.TWITCH_CLIENT_ID,
         'Authorization': `Bearer ${token}`
@@ -103,60 +90,48 @@ app.get('/api/twitch/:username', async (req, res) => {
       timeout: 8000
     });
 
-    const user = response.data.data[0];
+    const user = userResponse.data.data[0];
 
     if (user) {
-      // User exists → NOT banned
+      // NOT banned — your original message
+      const banStatus = 'Everything works perfectly! If you\'re experiencing issues, try <a href="https://www.cloudflare.com/learning/dns/what-is-dns/dns-troubleshooting-flush-dns-cache/" target="_blank">flushing your DNS</a> or <a href="https://www.pcmag.com/how-to/how-to-clear-your-cache-on-any-browser" target="_blank">clearing your app cache</a>.';
+
       const result = {
         username: user.login,
         nickname: user.display_name,
-        avatar: user.profile_image_url || 'https://via.placeholder.com/300',
-        ban_status: 'Account is active – no sitewide ban detected.',
-        profile_link: `https://twitch.tv/${user.login}`,
-        cached: false
+        avatar: user.profile_image_url || 'https://via.placeholder.com/50',
+        ban_status: banStatus,
+        profile_link: `https://www.twitch.tv/${user.login}`
       };
-      userCache.set(username, { data: result, timestamp: Date.now() });
+
+      userCache.set(normalized, { data: result, timestamp: Date.now() });
       return res.json(result);
     }
 
-    // No user → banned or never existed
-    const banned = {
-      username,
-      nickname: 'Not found',
-      avatar: 'https://via.placeholder.com/300?text=Banned',
-      ban_status: 'User is sitewide banned or does not exist.',
-      profile_link: `https://twitch.tv/${username} (inaccessible)`,
-      cached: false
-    };
-    userCache.set(username, { data: banned, timestamp: Date.now() });
-    return res.json(banned);
-
   } catch (error) {
-    if (error.response?.status === 400 || error.response?.status === 404) {
-      const banned = {
-        username,
-        nickname: 'Not found',
-        avatar: 'https://via.placeholder.com/300?text=Banned',
-        ban_status: 'User is sitewide banned or does not exist.',
-        profile_link: `https://twitch.tv/${username} (inaccessible)`,
-        cached: false
+    if (error.response?.status === 404 || error.response?.status === 400) {
+      // BANNED — your original message
+      const result = {
+        username: normalized,
+        nickname: 'N/A (Banned or Invalid)',
+        avatar: 'https://via.placeholder.com/50?text=Banned',
+        ban_status: 'User appears to be sitewide banned on Twitch or does not exist. Account is inaccessible.',
+        profile_link: `https://www.twitch.tv/${normalized} (Profile unavailable)`
       };
-      userCache.set(username, { data: banned, timestamp: Date.now() });
-      return res.json(banned);
+
+      userCache.set(normalized, { data: result, timestamp: Date.now() });
+      return res.json(result);
     }
 
-    console.error('API Error:', error.message);
-    res.status(500).json({ error: 'Twitch service unavailable – try again soon.' });
-  } finally {
-    release();
+    console.error('Twitch API Error:', error.message);
+    res.status(500).json({ error: 'Service temporarily unavailable' });
   }
 });
 
-// Root & health
-app.get('/', (req, res) => res.send('Twitch Ban Checker API Running'));
-app.get('/health', (req, res) => res.json({ status: 'ok', cache: userCache.size }));
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
 
 app.listen(port, () => {
-  console.log(`Twitch Ban Checker live on port ${port}`);
-  console.log(`Rate limit: ${RATE_LIMIT_MAX}/min | Cache: 5 min`);
+  console.log(`Twitch Sitewide Ban Checker running on port ${port}`);
 });
