@@ -1,4 +1,3 @@
-// twitch-ban.js — YOUR ORIGINAL STYLE + ALL FIXES
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
